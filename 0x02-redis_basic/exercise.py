@@ -13,8 +13,8 @@ def count_calls(method: Callable) -> Callable:
     def decorator(*args, **kwargs):
 
         key = method.__qualname__
-        cache = args[0]
-        cache._redis.incr(key, 1)
+        self = args[0]
+        self._redis.incr(key, 1)
 
         return method(*args, **kwargs)
     return decorator
@@ -27,10 +27,10 @@ def call_history(method: Callable) -> Callable:
 
         key_input = f'{method.__qualname__}:inputs'
         key_output = f'{method.__qualname__}:outputs'
-        cache: Cache = args[0]
-        cache._redis.rpush(key_input, str(args[1:]))
+        self = args[0]
+        self._redis.rpush(key_input, str(args[1:]))
         output = method(*args, **kwargs)
-        cache._redis.rpush(key_output, str(output))
+        self._redis.rpush(key_output, str(output))
 
         return output
     return decorator
@@ -63,9 +63,27 @@ class Cache:
     def get_str(self, key: str) -> \
             Optional[Union[str, Union[bytes, Union[int, float]]]]:
         """Method to get str value from cache"""
-        return self.get(key, str)
+        return self.get(key, lambda x: x.decode('UTF-8'))
 
     def get_int(self, key: str) -> \
             Optional[Union[str, Union[bytes, Union[int, float]]]]:
         """Method to get int value from cache"""
         return self.get(key, int)
+
+
+def replay(method: Callable):
+    """Function that display the history of calls of a particular function"""
+    _redis = redis.Redis()
+
+    key_count = method.__qualname__
+    counts = int(_redis.get(key_count))
+
+    key_input = f'{method.__qualname__}:inputs'
+    key_output = f'{method.__qualname__}:outputs'
+
+    inputs = _redis.lrange(key_input, 0, counts)
+    outputs = _redis.lrange(key_output, 0, counts)
+
+    print(f"{key_count} was called {counts} times:")
+    for in_, out in zip(inputs, outputs):
+        print(f"{key_count}(*{in_.decode('UTF-8')}) -> {out.decode('UTF-8')}")
